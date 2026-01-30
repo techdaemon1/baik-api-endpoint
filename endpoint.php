@@ -1,13 +1,142 @@
 <?php
 /**
  * endpoint.php - Receptor BAIK Multi-Dispositivo
- * Versión 2.4 - Optimizado para Firmware V6.9.8 (DEBUG FREEZE TRACKER)
+ * Versión 2.5 - GET + POST Support
  */
-header('Content-Type: text/html; charset=UTF-8');
 date_default_timezone_set('America/Bogota');
 
 $globalLogFile = __DIR__ . '/baik_data.txt';
 $debugLog = __DIR__ . '/debug.txt';
+
+// ========================================
+// MANEJO DE GET REQUESTS
+// ========================================
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    $requestUri = $_SERVER['REQUEST_URI'];
+    $path = parse_url($requestUri, PHP_URL_PATH);
+
+    // GET /clients/{device_id}/latest.json
+    if (preg_match('#^/clients/([A-Za-z0-9_-]+)/latest\.json$#', $path, $matches)) {
+        $device_id = $matches[1];
+        $latestFile = __DIR__ . '/clients/' . $device_id . '/latest.json';
+
+        if (file_exists($latestFile)) {
+            header('Content-Type: application/json; charset=UTF-8');
+            header('Access-Control-Allow-Origin: *');
+            readfile($latestFile);
+            exit;
+        } else {
+            http_response_code(404);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'Device not found']);
+            exit;
+        }
+    }
+
+    // GET /clients/{device_id}/data.txt
+    if (preg_match('#^/clients/([A-Za-z0-9_-]+)/data\.txt$#', $path, $matches)) {
+        $device_id = $matches[1];
+        $dataFile = __DIR__ . '/clients/' . $device_id . '/data.txt';
+
+        if (file_exists($dataFile)) {
+            header('Content-Type: text/plain; charset=UTF-8');
+            header('Access-Control-Allow-Origin: *');
+            readfile($dataFile);
+            exit;
+        } else {
+            http_response_code(404);
+            header('Content-Type: text/plain');
+            echo "Device not found";
+            exit;
+        }
+    }
+
+    // GET /clients/{device_id}/debug_history.txt
+    if (preg_match('#^/clients/([A-Za-z0-9_-]+)/debug_history\.txt$#', $path, $matches)) {
+        $device_id = $matches[1];
+        $debugFile = __DIR__ . '/clients/' . $device_id . '/debug_history.txt';
+
+        if (file_exists($debugFile)) {
+            header('Content-Type: text/plain; charset=UTF-8');
+            header('Access-Control-Allow-Origin: *');
+            readfile($debugFile);
+            exit;
+        } else {
+            http_response_code(404);
+            header('Content-Type: text/plain');
+            echo "Debug file not found";
+            exit;
+        }
+    }
+
+    // GET /clients/ - Listar dispositivos
+    if (preg_match('#^/clients/?$#', $path)) {
+        header('Content-Type: application/json; charset=UTF-8');
+        header('Access-Control-Allow-Origin: *');
+
+        $clientsDir = __DIR__ . '/clients/';
+        $devices = [];
+
+        if (is_dir($clientsDir)) {
+            $dirs = array_diff(scandir($clientsDir), ['.', '..']);
+            foreach ($dirs as $dir) {
+                $latestFile = $clientsDir . $dir . '/latest.json';
+                if (file_exists($latestFile)) {
+                    $data = json_decode(file_get_contents($latestFile), true);
+                    if ($data) {
+                        $devices[] = [
+                            'device_id' => $dir,
+                            'last_update' => $data['timestamp'] ?? 'Unknown',
+                            'battery' => $data['battery'] ?? 0,
+                            'is_moving' => $data['is_moving'] ?? false,
+                            'gps_valid' => $data['gps']['is_valid'] ?? false,
+                            'latest_json_url' => "/clients/$dir/latest.json",
+                            'data_log_url' => "/clients/$dir/data.txt"
+                        ];
+                    }
+                }
+            }
+        }
+
+        echo json_encode([
+            'total_devices' => count($devices),
+            'devices' => $devices
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    // GET / - Status page
+    if ($path === '/' || $path === '') {
+        header('Content-Type: application/json; charset=UTF-8');
+        header('Access-Control-Allow-Origin: *');
+
+        echo json_encode([
+            'status' => 'online',
+            'service' => 'BAIK API Endpoint',
+            'version' => '2.5',
+            'timestamp' => date('Y-m-d H:i:s'),
+            'endpoints' => [
+                'POST /' => 'Receive device data (JSON)',
+                'GET /clients/' => 'List all devices',
+                'GET /clients/{device_id}/latest.json' => 'Get latest device data',
+                'GET /clients/{device_id}/data.txt' => 'Get device log file',
+                'GET /clients/{device_id}/debug_history.txt' => 'Get debug history'
+            ]
+        ], JSON_PRETTY_PRINT);
+        exit;
+    }
+
+    // 404 para otras rutas GET
+    http_response_code(404);
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'Not found']);
+    exit;
+}
+
+// ========================================
+// MANEJO DE POST REQUESTS (ORIGINAL)
+// ========================================
+header('Content-Type: text/html; charset=UTF-8');
 
 $json_recibido = file_get_contents('php://input');
 
